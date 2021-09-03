@@ -10,24 +10,107 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
+# =====================
+
+success() {
+  echo -e "\e[32m\e[1m${1}\e[0m"
+}
+
+warning() {
+  echo -e "\e[33m\e[1m${1}\e[0m"
+}
+
+error() {
+  echo -e "\e[91m\e[1m${1}\e[0m"
+}
+
+# =====================
+
+IS_GIT_REPOSITORY=`git -C . rev-parse 2> /dev/null; echo $?`
+PENDING_CHANGES=
+
+if [[ ! $IS_GIT_REPOSITORY -eq 0 ]]; then
+  error "Path is a no a Git repository"
+  exit
+fi
+
+if [[ `git status --porcelain` ]]; then
+  warning "There are files not committed yet"
+  PENDING_CHANGES="dirty"
+fi
+
+BRANCH=`git rev-parse --abbrev-ref HEAD`
+COMMIT=`git rev-parse HEAD | cut -c1-8`
+HOSTNAME=`hostname`
+VERSION=`awk -F'"' '/"version": ".+"/{ print $4; exit; }' package.json`
+PROJECT_VERSION=${VERSION}-${BRANCH}-${COMMIT}-${HOSTNAME}-${PENDING_CHANGES}
+
+# =====================
+
+ORGANIZATION=
+
+while getopts o: options
+do
+  case "${options}" in
+    o) ORGANIZATION=${OPTARG};;
+    \?) error "Error: Invalid option"
+        exit;;
+  esac
+done
+
+if [ -z "$ORGANIZATION" ]; then
+   echo "Help"
+   exit 1
+fi
+
+# =====================
+
+CONFIG_PATH=~/.sonar/config/
+CONFIG_FILE=${CONFIG_PATH}${ORGANIZATION}.sh
+
+if [ ! -f "${CONFIG_FILE}" ]; then
+  error "\nThe configuration for '${ORGANIZATION}' organization does not exist"
+  exit 1
+fi
+
+echo "Loading configuration"
+source "${CONFIG_FILE}"
+
+
+if grep -iq "skipLint" <<< "${@}"; then
+  warning "Skipping lint\n"
+else
+  echo "Linting source code"
+  npm run lint:ci --if-present
+fi
+
+if grep -iq "skipTest" <<< "${@}"; then
+  warning "Skipping unit tests\n"
+else
+  echo "Unit Testing"
+  npm run test:ci --if-present
+fi
+
+echo "Running sonar scanner"
+npm run sonar --if-present -- -Dsonar.host.url=${SONAR_INSTANCE} -Dsonar.login=${SONAR_ACCESS_TOKEN} -Dsonar.projectVersion=${PROJECT_VERSION} -Dsonar.branch.name=${BRANCH}
+
+# =====================
+
 # in newer versions of sonar scanner the default report-task.txt location may be different
-# REPORT_PATH=".scannerwork/report-task.txt"
-REPORT_PATH=".sonar/report-task.txt"
+REPORT_PATH=".scannerwork/report-task.txt"
+#REPORT_PATH=".sonar/report-task.txt"
 CE_TASK_ID_KEY="ceTaskId="
 
-SONAR_INSTANCE="${1}"
-SONAR_ACCESS_TOKEN="${2}"
 SLEEP_TIME=5
 
 echo "QG Script --> Using SonarQube instance ${SONAR_INSTANCE}"
-echo "QG Script --> Using SonarQube access token ${SONAR_ACCESS_TOKEN}"
 
 # get the compute engine task id
 ce_task_id=$(cat $REPORT_PATH | grep $CE_TASK_ID_KEY | cut -d'=' -f2)
 echo "QG Script --> Using task id of ${ce_task_id}"
 
 if [ -z "$ce_task_id" ]; then
-   echo "QG Script --> No task id found"
+   error "QG Script --> No task id found"
    exit 1
 fi
 
@@ -43,12 +126,12 @@ do
   echo "QG Script --> Status of SonarQube task is ${ce_status}"
 
   if [ "${ce_status}" = "CANCELLED" ]; then
-    echo "QG Script --> SonarQube Compute job has been cancelled - exiting with error"
+    error "QG Script --> SonarQube Compute job has been cancelled - exiting with error"
     exit 1
   fi
 
   if [ "${ce_status}" = "FAILED" ]; then
-    echo "QG Script --> SonarQube Compute job has failed - exiting with error"
+    error "QG Script --> SonarQube Compute job has failed - exiting with error"
     exit 1
   fi
 
@@ -65,9 +148,10 @@ echo "QG Script --> Using analysis id of ${ce_analysis_id}"
 
 # get the status of the quality gate for this analysisId
 qg_status=$(curl -s -u $SONAR_ACCESS_TOKEN: $SONAR_INSTANCE/api/qualitygates/project_status?analysisId="${ce_analysis_id}" | jq -r .projectStatus.status)
-echo "QG Script --> Quality Gate status is ${qg_status}"
 
-if [ "${qg_status}" != "OK" ]; then
-  echo "QG Script --> Quality gate is not OK - exiting with error"
+if [ "${qg_status}" == "OK" ]; then
+  success "QG Script --> Quality Gate status is ${qg_status}"
+else
+  error "QG Script --> Quality gate is ${qg_status} - exiting with error"
   exit 1
 fi
