@@ -81,18 +81,18 @@ if grep -iq "skipLint" <<< "${@}"; then
   warning "Skipping lint\n"
 else
   echo "Linting source code"
-  npm run lint:ci
+  npm run lint:ci --if-present
 fi
 
 if grep -iq "skipTest" <<< "${@}"; then
   warning "Skipping unit tests\n"
 else
   echo "Unit Testing"
-  npm run test:ci
+  npm run test:ci --if-present
 fi
 
 echo "Running sonar scanner"
-npm run sonar -- -Dsonar.host.url=${SONAR_INSTANCE} -Dsonar.login=${SONAR_ACCESS_TOKEN} -Dsonar.projectVersion=${PROJECT_VERSION} -Dsonar.branch.name=${BRANCH}
+npm run sonar --if-present -- -Dsonar.host.url=${SONAR_INSTANCE} -Dsonar.login=${SONAR_ACCESS_TOKEN} -Dsonar.projectVersion=${PROJECT_VERSION} -Dsonar.branch.name=${BRANCH}
 
 # =====================
 
