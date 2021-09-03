@@ -42,7 +42,7 @@ fi
 BRANCH=`git rev-parse --abbrev-ref HEAD`
 COMMIT=`git rev-parse HEAD | cut -c1-8`
 HOSTNAME=`hostname`
-VERSION=1.0 #`awk -F'"' '/"version": ".+"/{ print $4; exit; }' package.json`
+VERSION=`awk -F'"' '/"version": ".+"/{ print $4; exit; }' package.json`
 PROJECT_VERSION=${VERSION}-${BRANCH}-${COMMIT}-${HOSTNAME}-${PENDING_CHANGES}
 
 # =====================
